@@ -5,7 +5,8 @@
   "description": "Receive SMS messages from your mobile phone in real-time",
   "permissions": [
     "notifications",
-    "storage"
+    "storage",
+    "offscreen"
   ],
   "action": {
     "default_popup": "popup.html",

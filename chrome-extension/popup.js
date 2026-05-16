@@ -1,11 +1,32 @@
 let ws = null;
 let messages = [];
 
+// Keep the UI in sync with background updates.
+chrome.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName === 'local' && changes.messages) {
+        messages = changes.messages.newValue || [];
+        renderMessages();
+    }
+});
+
+// Receive connection status updates from background/offscreen.
+chrome.runtime.onMessage.addListener((msg) => {
+    if (msg && msg.type === 'WS_STATUS' && typeof msg.connected === 'boolean') {
+        updateStatus(msg.connected ? 'Connected' : 'Disconnected', msg.connected);
+    }
+});
+
+// Ask background for the last known status so the popup looks correct immediately.
+chrome.runtime.sendMessage({ type: 'REQUEST_WS_STATUS' }, (resp) => {
+    if (resp && typeof resp.connected === 'boolean') {
+        updateStatus(resp.connected ? 'Connected' : 'Disconnected', resp.connected);
+    }
+});
+
 // Load saved backend URL
 chrome.storage.sync.get(['backendUrl'], (result) => {
     if (result.backendUrl) {
         document.getElementById('backendUrl').value = result.backendUrl;
-        connectWebSocket(result.backendUrl);
     }
 });
 
@@ -32,9 +53,8 @@ document.getElementById('saveBtn').addEventListener('click', () => {
             wsUrl = 'wss://' + url;
         }
         
-        chrome.storage.sync.set({ backendUrl: wsUrl }, () => {
-            connectWebSocket(wsUrl);
-        });
+        updateStatus('Connecting...', false);
+        chrome.storage.sync.set({ backendUrl: wsUrl });
     }
 });
 

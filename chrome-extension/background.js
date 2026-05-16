@@ -1,170 +1,132 @@
-// Background service worker for Chrome extension
-// This keeps the WebSocket connection alive even when popup is closed
+// Background service worker for Chrome extension.
+// IMPORTANT: In MV3, service workers can be suspended, so we keep the WebSocket
+// in an offscreen document instead (offscreen.js).
 
-let ws = null;
-let reconnectInterval = null;
-let isConnecting = false;
-let reconnectAttempts = 0;
-const MAX_RECONNECT_ATTEMPTS = 10;
+let lastWsConnected = null;
 
-// Load backend URL and connect on startup
-chrome.storage.sync.get(['backendUrl'], (result) => {
-    if (result.backendUrl) {
-        connectWebSocket(result.backendUrl);
+function normalizeWsUrl(input) {
+    const url = (input || '').trim();
+    if (!url) return '';
+
+    if (url.startsWith('http://')) return url.replace('http://', 'ws://');
+    if (url.startsWith('https://')) return url.replace('https://', 'wss://');
+    if (url.startsWith('ws://') || url.startsWith('wss://')) return url;
+    return 'wss://' + url;
+}
+
+async function setupOffscreenDocument() {
+    // Offscreen requires permissions: "offscreen" in manifest.
+    const offscreenUrl = chrome.runtime.getURL('offscreen.html');
+
+    // If Chrome supports runtime.getContexts (Chrome 116+), avoid creating duplicates.
+    if (chrome.runtime.getContexts) {
+        const contexts = await chrome.runtime.getContexts({
+            contextTypes: ['OFFSCREEN_DOCUMENT'],
+            documentUrls: [offscreenUrl]
+        });
+        if (contexts && contexts.length > 0) return;
     }
-});
 
-// Listen for storage changes (when user updates backend URL)
+    await chrome.offscreen.createDocument({
+        url: 'offscreen.html',
+        reasons: ['WORKERS'],
+        justification: 'Keep SMS Sync WebSocket connection alive in the background.'
+    });
+}
+
+function connectUsingOffscreen(wsUrl) {
+    const url = normalizeWsUrl(wsUrl);
+    if (!url) return;
+
+    setupOffscreenDocument()
+        .then(() => {
+            chrome.runtime.sendMessage({
+                type: 'CONNECT',
+                url,
+                target: 'offscreen'
+            });
+        })
+        .catch((err) => {
+            console.error('[Background] Failed to set up offscreen document:', err);
+        });
+}
+
+function disconnectUsingOffscreen() {
+    chrome.runtime.sendMessage({
+        type: 'DISCONNECT',
+        target: 'offscreen'
+    });
+}
+
+function initFromStorage() {
+    chrome.storage.sync.get(['backendUrl'], (result) => {
+        if (result.backendUrl) {
+            connectUsingOffscreen(result.backendUrl);
+        }
+    });
+}
+
+// Also run immediately when the service worker wakes for any reason.
+initFromStorage();
+
+// Ensure we connect on install/startup.
+chrome.runtime.onInstalled.addListener(() => initFromStorage());
+chrome.runtime.onStartup.addListener(() => initFromStorage());
+
+// Reconnect when user updates backend URL.
 chrome.storage.onChanged.addListener((changes, areaName) => {
     if (areaName === 'sync' && changes.backendUrl) {
         const newUrl = changes.backendUrl.newValue;
         if (newUrl) {
-            reconnectAttempts = 0; // Reset attempts on manual URL change
-            connectWebSocket(newUrl);
+            connectUsingOffscreen(newUrl);
         } else {
-            // URL was cleared, disconnect
-            disconnectWebSocket();
+            disconnectUsingOffscreen();
         }
     }
 });
 
-function disconnectWebSocket() {
-    if (reconnectInterval) {
-        clearInterval(reconnectInterval);
-        reconnectInterval = null;
-    }
-    if (ws) {
-        ws.close();
-        ws = null;
-    }
-    isConnecting = false;
-    reconnectAttempts = 0;
-}
+// Receive messages from offscreen.js (SMS + connection status)
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+    if (!msg || typeof msg !== 'object') return;
 
-function connectWebSocket(url) {
-    // Prevent multiple simultaneous connection attempts
-    if (isConnecting) {
-        console.log('[Background] Connection already in progress, skipping...');
+    if (msg.type === 'SMS_RECEIVED') {
+        lastWsConnected = true;
+
+        // Store message
+        chrome.storage.local.get(['messages'], (result) => {
+            let messages = result.messages || [];
+            messages.unshift({
+                sender: msg.sender,
+                message: msg.message,
+                timestamp: msg.timestamp || new Date().toISOString()
+            });
+
+            if (messages.length > 100) {
+                messages = messages.slice(0, 100);
+            }
+
+            chrome.storage.local.set({ messages });
+        });
+
+        // Show notification
+        chrome.notifications.create({
+            type: 'basic',
+            iconUrl: 'icons/icon48.png',
+            title: `SMS from ${msg.sender}`,
+            message: (msg.message || '').substring(0, 100)
+        });
+
         return;
     }
 
-    // Close existing connection
-    if (ws) {
-        if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
-            ws.close();
-        }
-        ws = null;
+    if (msg.type === 'WS_STATUS') {
+        lastWsConnected = Boolean(msg.connected);
+        return; // Offscreen already sends WS_STATUS directly; popup can listen too.
     }
 
-    // Clear existing reconnect interval
-    if (reconnectInterval) {
-        clearInterval(reconnectInterval);
-        reconnectInterval = null;
+    if (msg.type === 'REQUEST_WS_STATUS') {
+        sendResponse({ connected: lastWsConnected === true });
+        return true;
     }
-
-    // Check if we've exceeded max reconnect attempts
-    if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-        console.error('[Background] Max reconnect attempts reached. Please check backend URL.');
-        return;
-    }
-
-    isConnecting = true;
-    reconnectAttempts++;
-
-    try {
-        console.log(`[Background] Attempting to connect to ${url} (attempt ${reconnectAttempts})`);
-        ws = new WebSocket(url);
-
-        ws.onopen = () => {
-            console.log('[Background] WebSocket connected successfully');
-            isConnecting = false;
-            reconnectAttempts = 0; // Reset on successful connection
-            
-            // Clear any pending reconnect interval
-            if (reconnectInterval) {
-                clearInterval(reconnectInterval);
-                reconnectInterval = null;
-            }
-        };
-
-        ws.onmessage = (event) => {
-            try {
-                const data = JSON.parse(event.data);
-                
-                if (data.type === 'sms') {
-                    // Store message
-                    chrome.storage.local.get(['messages'], (result) => {
-                        let messages = result.messages || [];
-                        messages.unshift({
-                            sender: data.sender,
-                            message: data.message,
-                            timestamp: data.timestamp || new Date().toISOString()
-                        });
-                        
-                        if (messages.length > 100) {
-                            messages = messages.slice(0, 100);
-                        }
-                        
-                        chrome.storage.local.set({ messages: messages });
-                    });
-
-                    // Show notification
-                    chrome.notifications.create({
-                        type: 'basic',
-                        iconUrl: 'icons/icon48.png',
-                        title: `SMS from ${data.sender}`,
-                        message: data.message.substring(0, 100)
-                    });
-                } else if (data.type === 'connected') {
-                    console.log('[Background] Server:', data.message);
-                }
-            } catch (error) {
-                console.error('[Background] Error parsing message:', error);
-            }
-        };
-
-        ws.onerror = (error) => {
-            console.error('[Background] WebSocket error:', error);
-            isConnecting = false;
-        };
-
-        ws.onclose = (event) => {
-            console.log(`[Background] WebSocket disconnected. Code: ${event.code}, Reason: ${event.reason || 'Unknown'}`);
-            isConnecting = false;
-            ws = null;
-            
-            // Only reconnect if it wasn't a manual close (code 1000)
-            if (event.code !== 1000 && reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
-                // Exponential backoff: 5s, 10s, 20s, etc. (max 30s)
-                const delay = Math.min(5000 * Math.pow(2, reconnectAttempts - 1), 30000);
-                console.log(`[Background] Will attempt reconnect in ${delay/1000} seconds...`);
-                
-                reconnectInterval = setTimeout(() => {
-                    chrome.storage.sync.get(['backendUrl'], (result) => {
-                        if (result.backendUrl) {
-                            connectWebSocket(result.backendUrl);
-                        }
-                    });
-                }, delay);
-            } else if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-                console.error('[Background] Stopped reconnecting. Max attempts reached.');
-            }
-        };
-    } catch (error) {
-        console.error('[Background] Failed to create WebSocket:', error);
-        isConnecting = false;
-        
-        // Retry after delay
-        if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
-            const delay = Math.min(5000 * Math.pow(2, reconnectAttempts - 1), 30000);
-            reconnectInterval = setTimeout(() => {
-                chrome.storage.sync.get(['backendUrl'], (result) => {
-                    if (result.backendUrl) {
-                        connectWebSocket(result.backendUrl);
-                    }
-                });
-            }, delay);
-        }
-    }
-}
+});
 
