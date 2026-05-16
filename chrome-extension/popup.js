@@ -24,9 +24,9 @@ chrome.runtime.sendMessage({ type: 'REQUEST_WS_STATUS' }, (resp) => {
 });
 
 // Load saved backend URL and API Secret
-chrome.storage.sync.get(['backendUrl', 'apiSecret'], (result) => {
-    if (result.backendUrl) {
-        document.getElementById('backendUrl').value = result.backendUrl;
+chrome.storage.sync.get(['backendUrl', 'lastBackendUrl', 'apiSecret'], (result) => {
+    if (result.backendUrl || result.lastBackendUrl) {
+        document.getElementById('backendUrl').value = result.backendUrl || result.lastBackendUrl;
     }
     if (result.apiSecret) {
         document.getElementById('apiSecret').value = result.apiSecret;
@@ -58,8 +58,15 @@ document.getElementById('saveBtn').addEventListener('click', () => {
         }
         
         updateStatus('Connecting...', false);
-        chrome.storage.sync.set({ backendUrl: wsUrl, apiSecret: apiSecret });
+        chrome.storage.sync.set({ backendUrl: wsUrl, lastBackendUrl: wsUrl, apiSecret: apiSecret });
     }
+});
+
+// Disconnect button click
+document.getElementById('disconnectBtn').addEventListener('click', () => {
+    chrome.storage.sync.remove(['backendUrl'], () => {
+        updateStatus('Disconnected', false);
+    });
 });
 
 // Clear button click
@@ -179,6 +186,15 @@ function updateStatus(text, connected) {
     
     statusText.textContent = text;
     statusDot.className = 'status-dot ' + (connected ? 'connected' : 'disconnected');
+    
+    // Disable inputs while connected or connecting
+    const isConnectingOrConnected = connected || text === 'Connecting...';
+    document.getElementById('backendUrl').disabled = isConnectingOrConnected;
+    document.getElementById('apiSecret').disabled = isConnectingOrConnected;
+    
+    // Toggle buttons
+    document.getElementById('saveBtn').style.display = isConnectingOrConnected ? 'none' : 'block';
+    document.getElementById('disconnectBtn').style.display = isConnectingOrConnected ? 'block' : 'none';
 }
 
 function escapeHtml(text) {

@@ -46,10 +46,18 @@ wss.on('connection', (ws, req) => {
     // Basic parsing to extract the token from query string
     const urlStr = req.url || '';
     const tokenMatch = urlStr.match(/[?&]token=([^&]+)/);
-    const token = tokenMatch ? tokenMatch[1] : null;
+    let token = tokenMatch ? tokenMatch[1] : null;
+    
+    if (token) {
+      try {
+        token = decodeURIComponent(token);
+      } catch (e) {
+        console.error('Failed to decode token:', e);
+      }
+    }
     
     if (token !== API_SECRET) {
-      console.log('WebSocket connection rejected: Invalid or missing token');
+      console.log(`WebSocket connection rejected: Invalid or missing token. Expected secret length: ${API_SECRET.length}, received token length: ${token ? token.length : 0}`);
       ws.close(4000, 'Unauthorized');
       return;
     }

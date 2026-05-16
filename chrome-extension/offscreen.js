@@ -5,6 +5,8 @@ let ws = null;
 let currentUrl = null;
 let currentApiSecret = null;
 let reconnectTimer = null;
+let reconnectAttempts = 0;
+const MAX_RECONNECT_ATTEMPTS = 5;
 
 let reconnectDelayMs = 1000;
 const RECONNECT_DELAY_MAX_MS = 30000;
@@ -22,10 +24,22 @@ function normalizeWsUrl(input) {
   return 'wss://' + url;
 }
 
-function scheduleReconnect() {
+function scheduleReconnect(closeCode) {
+  if (closeCode === 4000) {
+    console.error('[Offscreen] Connection rejected: Unauthorized. Stopping reconnect attempts.');
+    return;
+  }
+
   if (!currentUrl) return;
+
+  if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+    console.error('[Offscreen] Max reconnect attempts reached. Giving up.');
+    return;
+  }
+
   if (reconnectTimer) return;
 
+  reconnectAttempts++;
   reconnectTimer = setTimeout(() => {
     reconnectTimer = null;
     connectWebSocket(currentUrl, currentApiSecret);
@@ -74,6 +88,7 @@ function connectWebSocket(url, apiSecret) {
 
   ws.onopen = () => {
     reconnectDelayMs = 1000;
+    reconnectAttempts = 0;
     chrome.runtime.sendMessage({ type: 'WS_STATUS', connected: true });
   };
 
@@ -99,10 +114,10 @@ function connectWebSocket(url, apiSecret) {
     // onclose will schedule reconnect.
   };
 
-  ws.onclose = () => {
+  ws.onclose = (event) => {
     ws = null;
     chrome.runtime.sendMessage({ type: 'WS_STATUS', connected: false });
-    scheduleReconnect();
+    scheduleReconnect(event ? event.code : null);
   };
 }
 
@@ -110,6 +125,8 @@ chrome.runtime.onMessage.addListener((msg) => {
   if (!msg || typeof msg !== 'object') return;
 
   if (msg.type === 'CONNECT' && msg.url) {
+    reconnectAttempts = 0;
+    reconnectDelayMs = 1000;
     connectWebSocket(msg.url, msg.apiSecret);
   }
 

@@ -21,7 +21,10 @@
             <input type="text" id="backendUrl" placeholder="ws://your-backend-url.com" />
             <label for="apiSecret" style="margin-top: 8px; display: block;">API Secret:</label>
             <input type="password" id="apiSecret" placeholder="Your API Secret" />
-            <button id="saveBtn">Save & Connect</button>
+            <div style="display: flex; gap: 8px; margin-top: 16px;">
+                <button id="saveBtn" style="flex: 1;">Save & Connect</button>
+                <button id="disconnectBtn" style="flex: 1; display: none; background-color: #dc3545; color: white;">Disconnect</button>
+            </div>
         </div>
 
         <div class="messages-section">
