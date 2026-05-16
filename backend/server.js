@@ -13,13 +13,48 @@ const wss = new WebSocket.Server({ server });
 // Store connected clients (Chrome extensions)
 const clients = new Set();
 
+const API_SECRET = process.env.API_SECRET;
+
+// Middleware to authenticate API requests
+function authenticateAPI(req, res, next) {
+  if (!API_SECRET) {
+    console.warn('WARNING: API_SECRET is not set. API is unsecured.');
+    return next();
+  }
+  
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Unauthorized: Missing or invalid Authorization header' });
+  }
+
+  const token = authHeader.split(' ')[1];
+  if (token !== API_SECRET) {
+    return res.status(403).json({ error: 'Forbidden: Invalid API Secret' });
+  }
+
+  next();
+}
+
 // Middleware
 app.use(cors());
 app.use(bodyParser.json());
 app.use(express.static('.')); // Serve static files (for test.html)
 
 // WebSocket connection handling
-wss.on('connection', (ws) => {
+wss.on('connection', (ws, req) => {
+  if (API_SECRET) {
+    // Basic parsing to extract the token from query string
+    const urlStr = req.url || '';
+    const tokenMatch = urlStr.match(/[?&]token=([^&]+)/);
+    const token = tokenMatch ? tokenMatch[1] : null;
+    
+    if (token !== API_SECRET) {
+      console.log('WebSocket connection rejected: Invalid or missing token');
+      ws.close(4000, 'Unauthorized');
+      return;
+    }
+  }
+
   console.log('Chrome extension connected');
   clients.add(ws);
 
@@ -56,7 +91,7 @@ function broadcastSMS(smsData) {
 }
 
 // REST API endpoint to receive SMS from mobile app
-app.post('/api/sms', (req, res) => {
+app.post('/api/sms', authenticateAPI, (req, res) => {
   const { sender, message, timestamp } = req.body;
 
   if (!sender || !message) {
@@ -84,7 +119,7 @@ app.post('/api/sms', (req, res) => {
 });
 
 // Test endpoint to send a test SMS
-app.post('/api/test-sms', (req, res) => {
+app.post('/api/test-sms', authenticateAPI, (req, res) => {
   const { sender, message, timestamp } = req.body;
 
   // Use default test values if not provided

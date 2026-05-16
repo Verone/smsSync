@@ -23,10 +23,13 @@ chrome.runtime.sendMessage({ type: 'REQUEST_WS_STATUS' }, (resp) => {
     }
 });
 
-// Load saved backend URL
-chrome.storage.sync.get(['backendUrl'], (result) => {
+// Load saved backend URL and API Secret
+chrome.storage.sync.get(['backendUrl', 'apiSecret'], (result) => {
     if (result.backendUrl) {
         document.getElementById('backendUrl').value = result.backendUrl;
+    }
+    if (result.apiSecret) {
+        document.getElementById('apiSecret').value = result.apiSecret;
     }
 });
 
@@ -41,6 +44,7 @@ chrome.storage.local.get(['messages'], (result) => {
 // Save button click
 document.getElementById('saveBtn').addEventListener('click', () => {
     const url = document.getElementById('backendUrl').value.trim();
+    const apiSecret = document.getElementById('apiSecret').value.trim();
     if (url) {
         // Convert http/https to ws/wss
         let wsUrl = url;
@@ -54,7 +58,7 @@ document.getElementById('saveBtn').addEventListener('click', () => {
         }
         
         updateStatus('Connecting...', false);
-        chrome.storage.sync.set({ backendUrl: wsUrl });
+        chrome.storage.sync.set({ backendUrl: wsUrl, apiSecret: apiSecret });
     }
 });
 

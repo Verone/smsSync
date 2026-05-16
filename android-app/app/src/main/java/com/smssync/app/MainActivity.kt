@@ -23,6 +23,7 @@ import java.io.IOException
 class MainActivity : AppCompatActivity() {
 
     private lateinit var backendUrlEditText: EditText
+    private lateinit var apiSecretEditText: EditText
     private lateinit var statusTextView: TextView
     private lateinit var saveButton: Button
     private lateinit var testButton: Button
@@ -37,6 +38,7 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         backendUrlEditText = findViewById(R.id.backendUrlEditText)
+        apiSecretEditText = findViewById(R.id.apiSecretEditText)
         statusTextView = findViewById(R.id.statusTextView)
         saveButton = findViewById(R.id.saveButton)
         testButton = findViewById(R.id.testButton)
@@ -50,11 +52,20 @@ class MainActivity : AppCompatActivity() {
             backendUrlEditText.setText("http://your-backend-url.com")
         }
 
+        val savedSecret = prefs.getString("api_secret", "")
+        if (!savedSecret.isNullOrEmpty()) {
+            apiSecretEditText.setText(savedSecret)
+        }
+
         saveButton.setOnClickListener {
             val url = backendUrlEditText.text.toString().trim()
+            val secret = apiSecretEditText.text.toString().trim()
             if (url.isNotEmpty()) {
-                prefs.edit().putString("backend_url", url).apply()
-                Toast.makeText(this, "Backend URL saved!", Toast.LENGTH_SHORT).show()
+                prefs.edit()
+                    .putString("backend_url", url)
+                    .putString("api_secret", secret)
+                    .apply()
+                Toast.makeText(this, "Configuration saved!", Toast.LENGTH_SHORT).show()
                 updateStatus("Backend URL: $url")
             } else {
                 Toast.makeText(this, "Please enter a valid URL", Toast.LENGTH_SHORT).show()
@@ -63,18 +74,19 @@ class MainActivity : AppCompatActivity() {
 
         testButton.setOnClickListener {
             val url = backendUrlEditText.text.toString().trim()
+            val secret = apiSecretEditText.text.toString().trim()
             if (url.isEmpty()) {
                 Toast.makeText(this, "Enter a backend URL first", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
-            sendTestSms(url)
+            sendTestSms(url, secret)
         }
 
         // Request permissions
         checkAndRequestPermissions()
     }
 
-    private fun sendTestSms(backendUrl: String) {
+    private fun sendTestSms(backendUrl: String, apiSecret: String) {
         updateStatus("Sending test SMS to $backendUrl ...")
 
         val payload = mapOf(
@@ -85,10 +97,15 @@ class MainActivity : AppCompatActivity() {
         val body = gson.toJson(payload)
             .toRequestBody("application/json; charset=utf-8".toMediaType())
 
-        val request = Request.Builder()
-            .url("$backendUrl/api/sms")
+        val requestBuilder = Request.Builder()
+            .url("$backendUrl/api/test-sms")
             .post(body)
-            .build()
+
+        if (apiSecret.isNotEmpty()) {
+            requestBuilder.addHeader("Authorization", "Bearer $apiSecret")
+        }
+
+        val request = requestBuilder.build()
 
         httpClient.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {

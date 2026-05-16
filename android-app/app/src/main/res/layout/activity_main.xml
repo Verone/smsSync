@@ -30,6 +30,22 @@
         android:layout_marginBottom="16dp"
         android:padding="12dp" />
 
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="API Secret"
+        android:textSize="16sp"
+        android:layout_marginBottom="8dp" />
+
+    <EditText
+        android:id="@+id/apiSecretEditText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="Your API Secret"
+        android:inputType="textPassword"
+        android:layout_marginBottom="16dp"
+        android:padding="12dp" />
+
     <Button
         android:id="@+id/saveButton"
         android:layout_width="match_parent"

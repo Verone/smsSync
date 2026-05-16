@@ -3,6 +3,7 @@
 
 let ws = null;
 let currentUrl = null;
+let currentApiSecret = null;
 let reconnectTimer = null;
 
 let reconnectDelayMs = 1000;
@@ -27,17 +28,20 @@ function scheduleReconnect() {
 
   reconnectTimer = setTimeout(() => {
     reconnectTimer = null;
-    connectWebSocket(currentUrl);
+    connectWebSocket(currentUrl, currentApiSecret);
   }, reconnectDelayMs);
 
   reconnectDelayMs = Math.min(reconnectDelayMs * 2, RECONNECT_DELAY_MAX_MS);
 }
 
-function connectWebSocket(url) {
+function connectWebSocket(url, apiSecret) {
   const normalized = normalizeWsUrl(url);
   if (!normalized) return;
 
   currentUrl = normalized;
+  if (apiSecret !== undefined) {
+    currentApiSecret = apiSecret;
+  }
 
   // Close existing connection before reconnecting.
   if (ws) {
@@ -57,7 +61,16 @@ function connectWebSocket(url) {
   // Let background/popup know we are trying again.
   chrome.runtime.sendMessage({ type: 'WS_STATUS', connected: false });
 
-  ws = new WebSocket(currentUrl);
+  let finalUrl = currentUrl;
+  if (currentApiSecret) {
+    if (finalUrl.includes('?')) {
+      finalUrl += `&token=${encodeURIComponent(currentApiSecret)}`;
+    } else {
+      finalUrl += `?token=${encodeURIComponent(currentApiSecret)}`;
+    }
+  }
+
+  ws = new WebSocket(finalUrl);
 
   ws.onopen = () => {
     reconnectDelayMs = 1000;
@@ -97,7 +110,7 @@ chrome.runtime.onMessage.addListener((msg) => {
   if (!msg || typeof msg !== 'object') return;
 
   if (msg.type === 'CONNECT' && msg.url) {
-    connectWebSocket(msg.url);
+    connectWebSocket(msg.url, msg.apiSecret);
   }
 
   if (msg.type === 'DISCONNECT') {

@@ -44,6 +44,7 @@ class SmsReceiver : BroadcastReceiver() {
     ) {
         val prefs: SharedPreferences = context.getSharedPreferences("SmsSyncPrefs", Context.MODE_PRIVATE)
         val backendUrl = prefs.getString("backend_url", "")
+        val apiSecret = prefs.getString("api_secret", "")
 
         if (backendUrl.isNullOrEmpty()) {
             Log.e(TAG, "Backend URL not configured")
@@ -62,10 +63,15 @@ class SmsReceiver : BroadcastReceiver() {
         val mediaType = "application/json; charset=utf-8".toMediaType()
         val requestBody = json.toRequestBody(mediaType)
 
-        val request = Request.Builder()
+        val requestBuilder = Request.Builder()
             .url(apiUrl)
             .post(requestBody)
-            .build()
+
+        if (!apiSecret.isNullOrEmpty()) {
+            requestBuilder.addHeader("Authorization", "Bearer $apiSecret")
+        }
+
+        val request = requestBuilder.build()
 
         client.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {

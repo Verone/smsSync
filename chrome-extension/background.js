@@ -34,7 +34,7 @@ async function setupOffscreenDocument() {
     });
 }
 
-function connectUsingOffscreen(wsUrl) {
+function connectUsingOffscreen(wsUrl, apiSecret) {
     const url = normalizeWsUrl(wsUrl);
     if (!url) return;
 
@@ -43,6 +43,7 @@ function connectUsingOffscreen(wsUrl) {
             chrome.runtime.sendMessage({
                 type: 'CONNECT',
                 url,
+                apiSecret,
                 target: 'offscreen'
             });
         })
@@ -59,9 +60,9 @@ function disconnectUsingOffscreen() {
 }
 
 function initFromStorage() {
-    chrome.storage.sync.get(['backendUrl'], (result) => {
+    chrome.storage.sync.get(['backendUrl', 'apiSecret'], (result) => {
         if (result.backendUrl) {
-            connectUsingOffscreen(result.backendUrl);
+            connectUsingOffscreen(result.backendUrl, result.apiSecret);
         }
     });
 }
@@ -73,15 +74,16 @@ initFromStorage();
 chrome.runtime.onInstalled.addListener(() => initFromStorage());
 chrome.runtime.onStartup.addListener(() => initFromStorage());
 
-// Reconnect when user updates backend URL.
+// Reconnect when user updates backend URL or API Secret.
 chrome.storage.onChanged.addListener((changes, areaName) => {
-    if (areaName === 'sync' && changes.backendUrl) {
-        const newUrl = changes.backendUrl.newValue;
-        if (newUrl) {
-            connectUsingOffscreen(newUrl);
-        } else {
-            disconnectUsingOffscreen();
-        }
+    if (areaName === 'sync' && (changes.backendUrl || changes.apiSecret)) {
+        chrome.storage.sync.get(['backendUrl', 'apiSecret'], (result) => {
+            if (result.backendUrl) {
+                connectUsingOffscreen(result.backendUrl, result.apiSecret);
+            } else {
+                disconnectUsingOffscreen();
+            }
+        });
     }
 });
 
