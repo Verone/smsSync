@@ -162,6 +162,32 @@ body {
     word-wrap: break-word;
 }
 
+.message-subject {
+    font-size: 13px;
+    font-weight: 600;
+    color: #555;
+    margin-bottom: 4px;
+}
+
+.mms-badge {
+    display: inline-block;
+    background: #ff9800;
+    color: white;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 1px 5px;
+    border-radius: 3px;
+    margin-right: 6px;
+    vertical-align: middle;
+}
+
+.mms-image {
+    display: block;
+    max-width: 100%;
+    border-radius: 6px;
+    margin-top: 8px;
+}
+
 .clear-btn {
     width: 100%;
     padding: 10px;

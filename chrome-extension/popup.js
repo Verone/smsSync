@@ -96,8 +96,8 @@ function connectWebSocket(url) {
         ws.onmessage = (event) => {
             try {
                 const data = JSON.parse(event.data);
-                
-                if (data.type === 'sms') {
+
+                if (data.type === 'sms' || data.type === 'mms') {
                     handleSMS(data);
                 } else if (data.type === 'connected') {
                     console.log('Server:', data.message);
@@ -131,28 +131,33 @@ function connectWebSocket(url) {
 }
 
 function handleSMS(data) {
+    const isMms = data.type === 'mms';
     const message = {
+        msgType: data.type || 'sms',
         sender: data.sender,
-        message: data.message,
+        message: data.message || '',
+        subject: data.subject || null,
+        attachments: data.attachments || [],
         timestamp: data.timestamp || new Date().toISOString()
     };
 
-    messages.unshift(message); // Add to beginning
+    messages.unshift(message);
     if (messages.length > 100) {
-        messages = messages.slice(0, 100); // Keep only last 100
+        messages = messages.slice(0, 100);
     }
 
-    // Save to storage
     chrome.storage.local.set({ messages: messages }, () => {
         renderMessages();
     });
 
-    // Show notification
+    const notifBody = data.message
+        ? data.message.substring(0, 100)
+        : isMms ? (data.subject || '[imagem/mídia]') : '';
     chrome.notifications.create({
         type: 'basic',
         iconUrl: 'icons/icon48.png',
-        title: `SMS from ${data.sender}`,
-        message: data.message.substring(0, 100)
+        title: `${isMms ? 'MMS' : 'SMS'} from ${data.sender}`,
+        message: notifBody
     });
 }
 
@@ -167,14 +172,22 @@ function renderMessages() {
     messagesList.innerHTML = messages.map(msg => {
         const date = new Date(msg.timestamp);
         const timeStr = date.toLocaleString();
-        
+        const isMms = msg.msgType === 'mms';
+        const badge = isMms ? '<span class="mms-badge">MMS</span>' : '';
+        const subject = msg.subject ? `<div class="message-subject">${escapeHtml(msg.subject)}</div>` : '';
+        const body = msg.message ? `<div class="message-body">${escapeHtml(msg.message)}</div>` : '';
+        const images = (msg.attachments || [])
+            .filter(a => a.contentType && a.contentType.startsWith('image/'))
+            .map(a => `<img class="mms-image" src="data:${escapeHtml(a.contentType)};base64,${a.data}" alt="${escapeHtml(a.name || 'imagem')}" />`)
+            .join('');
+
         return `
             <div class="message-item">
                 <div class="message-header">
-                    <span class="message-sender">${escapeHtml(msg.sender)}</span>
+                    <span class="message-sender">${badge}${escapeHtml(msg.sender)}</span>
                     <span class="message-time">${timeStr}</span>
                 </div>
-                <div class="message-body">${escapeHtml(msg.message)}</div>
+                ${subject}${body}${images}
             </div>
         `;
     }).join('');

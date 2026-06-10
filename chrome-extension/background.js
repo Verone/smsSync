@@ -93,13 +93,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
     if (msg.type === 'SMS_RECEIVED') {
         lastWsConnected = true;
+        const isMms = msg.msgType === 'mms';
 
         // Store message
         chrome.storage.local.get(['messages'], (result) => {
             let messages = result.messages || [];
             messages.unshift({
+                msgType: msg.msgType || 'sms',
                 sender: msg.sender,
-                message: msg.message,
+                message: msg.message || '',
+                subject: msg.subject || null,
+                attachments: msg.attachments || [],
                 timestamp: msg.timestamp || new Date().toISOString()
             });
 
@@ -111,11 +115,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         });
 
         // Show notification
+        const notifTitle = isMms ? `MMS from ${msg.sender}` : `SMS from ${msg.sender}`;
+        const notifBody = msg.message
+            ? msg.message.substring(0, 100)
+            : isMms
+                ? (msg.subject || '[imagem/mídia]')
+                : '';
         chrome.notifications.create({
             type: 'basic',
             iconUrl: 'icons/icon48.png',
-            title: `SMS from ${msg.sender}`,
-            message: (msg.message || '').substring(0, 100)
+            title: notifTitle,
+            message: notifBody
         });
 
         return;

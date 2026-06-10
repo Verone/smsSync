@@ -95,11 +95,14 @@ function connectWebSocket(url, apiSecret) {
   ws.onmessage = (event) => {
     try {
       const data = JSON.parse(event.data);
-      if (data && data.type === 'sms') {
+      if (data && (data.type === 'sms' || data.type === 'mms')) {
         chrome.runtime.sendMessage({
           type: 'SMS_RECEIVED',
+          msgType: data.type,
           sender: data.sender,
-          message: data.message,
+          message: data.message || '',
+          subject: data.subject || null,
+          attachments: data.attachments || [],
           timestamp: data.timestamp || new Date().toISOString()
         });
       }

@@ -37,7 +37,7 @@ function authenticateAPI(req, res, next) {
 
 // Middleware
 app.use(cors());
-app.use(bodyParser.json());
+app.use(bodyParser.json({ limit: '10mb' }));
 app.use(express.static('.')); // Serve static files (for test.html)
 
 // WebSocket connection handling
@@ -98,30 +98,38 @@ function broadcastSMS(smsData) {
   return sentCount;
 }
 
-// REST API endpoint to receive SMS from mobile app
+// REST API endpoint to receive SMS/MMS from mobile app
 app.post('/api/sms', authenticateAPI, (req, res) => {
-  const { sender, message, timestamp } = req.body;
+  const { sender, message, timestamp, type, subject, attachments } = req.body;
+  const messageType = (type === 'MMS') ? 'mms' : 'sms';
 
-  if (!sender || !message) {
-    return res.status(400).json({ error: 'Missing required fields: sender, message' });
+  if (!sender) {
+    return res.status(400).json({ error: 'Missing required field: sender' });
+  }
+  // MMS can have empty message body (image/media only)
+  if (messageType === 'sms' && (message === undefined || message === null)) {
+    return res.status(400).json({ error: 'Missing required field: message' });
   }
 
   const smsData = {
-    type: 'sms',
+    type: messageType,
     sender: sender,
-    message: message,
+    message: message || '',
     timestamp: timestamp || new Date().toISOString()
   };
 
-  console.log('Received SMS:', smsData);
+  if (subject) smsData.subject = subject;
+  if (attachments && attachments.length > 0) smsData.attachments = attachments;
+
+  console.log(`Received ${messageType.toUpperCase()}:`, smsData);
 
   // Broadcast to all connected Chrome extensions
   const sentCount = broadcastSMS(smsData);
-  console.log(`Broadcasted SMS to ${sentCount} client(s)`);
+  console.log(`Broadcasted ${messageType.toUpperCase()} to ${sentCount} client(s)`);
 
-  res.json({ 
-    success: true, 
-    message: 'SMS received and broadcasted',
+  res.json({
+    success: true,
+    message: `${messageType.toUpperCase()} received and broadcasted`,
     clientsNotified: sentCount
   });
 });

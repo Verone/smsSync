@@ -134,7 +134,8 @@ class MainActivity : AppCompatActivity() {
     private fun checkAndRequestPermissions() {
         val permissions = arrayOf(
             Manifest.permission.RECEIVE_SMS,
-            Manifest.permission.READ_SMS
+            Manifest.permission.READ_SMS,
+            Manifest.permission.RECEIVE_MMS
         )
 
         val missingPermissions = permissions.filter {
